@@ -110,7 +110,7 @@ No, the sample average of ^μ across tests for which the null is rejected is not
 
 Problem 3 
 ```{r}
-homicide_data = read_csv("homicide-data.csv") %>%
+homicide_data = read_csv("data/homicide-data.csv") %>%
   mutate(
     city_state = str_c(city, state, sep = ", "),
     solved = disposition != "Closed without arrest" & 
