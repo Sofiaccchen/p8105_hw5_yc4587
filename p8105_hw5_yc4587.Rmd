@@ -1,0 +1,155 @@
+---
+title: "p8105_hw5_yc4587"
+output: html_document
+date: "2024-11-14"
+---
+
+Problem 1
+```{r}
+# Setup
+library(tidyverse)
+library(broom)
+library(purrr)
+
+birthday_duplicate = function(n) {
+  # Generate n random birthdays
+  birthdays = sample(1:365, n, replace = TRUE)
+  # Check for duplicates
+  any(duplicated(birthdays))
+}
+
+# Simulate for different group sizes
+set.seed(1) # For reproducibility
+sim_results = tibble(
+  group_size = 2:50,
+  prob_duplicate = map_dbl(group_size, function(n) {
+    mean(replicate(10000, birthday_duplicate(n)))
+  })
+)
+
+# Plot birthday problem results
+ggplot(sim_results, aes(x = group_size, y = prob_duplicate)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(
+    labels = scales::percent_format(),
+    limits = c(0, 1)
+  ) +
+  labs(
+    title = "Probability of Shared Birthdays by Group Size",
+    x = "Number of People",
+    y = "Probability of Shared Birthday",
+    caption = "Based on 10,000 simulations per group size"
+  ) +
+  theme_minimal()
+
+```
+Problem 2
+```{r}
+simulate_t_test = function(n = 30, mu, sigma = 5, nsims = 5000) {
+  tibble(
+    sim_id = 1:nsims,
+    data = map(sim_id, ~ rnorm(n, mu, sigma)),
+    t_test = map(data, ~ t.test(.x, mu = 0)),
+    results = map(t_test, broom::tidy)
+  ) %>%
+  unnest(results) %>%
+  select(sim_id, estimate, p.value)
+}
+
+# Run simulations for different effect sizes
+mu_values = 0:6
+power_results = map_df(mu_values, function(mu) {
+  simulate_t_test(mu = mu) %>%
+    mutate(true_mu = mu)
+})
+
+# Calculate power and average estimates
+power_summary = power_results %>%
+  group_by(true_mu) %>%
+  summarize(
+    power = mean(p.value < 0.05),
+    avg_mu_hat = mean(estimate),
+    avg_mu_hat_reject = mean(estimate[p.value < 0.05])
+  )
+
+# Power plot
+ggplot(power_summary, aes(x = true_mu, y = power)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Power vs Effect Size",
+    x = "True μ",
+    y = "Power"
+  ) +
+  theme_minimal()
+
+# Effect size estimation plots
+ggplot(power_summary) +
+  geom_line(aes(x = true_mu, y = avg_mu_hat, color = "All Samples")) +
+  geom_line(aes(x = true_mu, y = avg_mu_hat_reject, color = "Rejected H0 Only")) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  labs(
+    title = "Estimated vs True Effect Size",
+    x = "True μ",
+    y = "Average Estimated μ",
+    color = "Sample Type"
+  ) +
+  theme_minimal()
+# 
+
+```
+
+1. Power vs. Effect Size (First Plot):
+   - The plot shows that power increases with 𝜇. For example, at 𝜇= 1, power is approximately 0.15, meaning the null hypothesis is only rejected around 15% of the time, indicating low sensitivity for small effects.
+   - As 𝜇 increases, power rises significantly. At 𝜇 = 3, power reaches approximately 0.75, indicating a 75% chance of detecting the effect.
+   - By 𝜇 = 4, power is around 0.95, and for 𝜇≥ 5, power approaches 1. This suggests that for larger effects 𝜇≥ 4, the test is highly effective at rejecting the null hypothesis, achieving nearly 100% sensitivity.
+   
+2. For the second plot
+No, the sample average of ^μ across tests for which the null is rejected is not approximately equal to the true value of μ, especially at lower μ values. This is because of selection bias: only samples with larger-than-average estimates are likely to lead to rejection when μ is small, inflating the average ^μ in the subset where the null is rejected. As μ increases, this bias reduces because the power is higher, allowing even typical estimates to result in rejection, bringing the average ^μ closer to the true μ.
+
+Problem 3 
+```{r}
+homicide_data = read_csv("homicide-data.csv") %>%
+  mutate(
+    city_state = str_c(city, state, sep = ", "),
+    solved = disposition != "Closed without arrest" & 
+             disposition != "Open/No arrest"
+  )
+
+# Summarize by city
+city_summary = homicide_data %>%
+  group_by(city_state) %>%
+  summarize(
+    total = n(),
+    unsolved = sum(!solved)
+  )
+
+# Function to run prop.test and tidy results
+run_prop_test = function(total, unsolved) {
+  prop.test(unsolved, total) %>%
+    broom::tidy() %>%
+    select(estimate, conf.low, conf.high)
+}
+
+# Calculate proportions and CIs for all cities
+city_props = city_summary %>%
+  mutate(
+    prop_test = map2(total, unsolved, run_prop_test)
+  ) %>%
+  unnest(prop_test) %>%
+  arrange(desc(estimate))
+
+# Create plot of unsolved homicide proportions
+ggplot(city_props, aes(y = reorder(city_state, estimate), x = estimate)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  labs(
+    title = "Proportion of Unsolved Homicides by City",
+    x = "Proportion Unsolved",
+    y = "City"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8))
+```
+The raw homicide dataset contains 52,179 records and 12 columns, detailing individual homicide cases across 50 U.S. cities. Key columns include `uid`, a unique identifier for each case; `reported_date`, indicating the date the homicide was reported in YYYYMMDD format; and victim details, such as `victim_last` (last name), `victim_first` (first name), `victim_race`, `victim_age`, and `victim_sex`. Location information includes `city`, `state`, and geographic coordinates (`lat` and `lon`). The `disposition` column specifies the case outcome, with entries like "Closed without arrest" or "Closed by arrest." Overall, this dataset provides a comprehensive overview of homicides, allowing for analysis of factors such as victim demographics, case dispositions, and geographic distribution.
